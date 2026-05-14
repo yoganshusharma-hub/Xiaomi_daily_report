@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from functools import lru_cache
 from pathlib import Path
 import shutil
 import tempfile
@@ -14,15 +15,34 @@ app = FastAPI(title="Xiaomi Daily Report Engine API")
 
 # Mount static files
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+INDEX_FILE = STATIC_DIR / "index.html"
+STYLES_FILE = STATIC_DIR / "styles.css"
+APP_JS_FILE = STATIC_DIR / "app.js"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+
+@lru_cache(maxsize=1)
+def load_frontend_html() -> str:
+    if not INDEX_FILE.exists():
+        return "<h1>Xiaomi Daily Report Engine</h1><p>Frontend not found.</p>"
+
+    html = INDEX_FILE.read_text(encoding="utf-8")
+    if STYLES_FILE.exists():
+        html = html.replace(
+            '<link rel="stylesheet" href="/static/styles.css">',
+            f"<style>\n{STYLES_FILE.read_text(encoding='utf-8')}\n</style>",
+        )
+    if APP_JS_FILE.exists():
+        html = html.replace(
+            '<script src="/static/app.js"></script>',
+            f"<script>\n{APP_JS_FILE.read_text(encoding='utf-8')}\n</script>",
+        )
+    return html
+
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
-    index_file = STATIC_DIR / "index.html"
-    if index_file.exists():
-        return index_file.read_text(encoding="utf-8")
-    return "<h1>Xiaomi Daily Report Engine</h1><p>Frontend not found.</p>"
+    return load_frontend_html()
 
 @app.get("/api/status")
 async def get_status():
@@ -38,6 +58,7 @@ async def get_status():
             },
             "outputs": {
                 "final_report": engine.file_status(engine.FINAL_REPORT_FILE),
+                "zonal_report": engine.file_status(engine.ZONAL_REPORT_FILE),
                 "channel_report": engine.file_status(engine.CHANNEL_REPORT_FILE),
             }
         }
