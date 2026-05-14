@@ -829,8 +829,6 @@ def run(host: str, port: int) -> None:
 
 
 handler = XiaomiReportHandler
-app = handler
-application = handler
 
 
 if __name__ == "__main__":
