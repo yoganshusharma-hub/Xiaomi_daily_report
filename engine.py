@@ -5,7 +5,6 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from channel_report_generator import (
     AXIO_FILE as DEFAULT_AXIO_FILE,
@@ -13,6 +12,7 @@ from channel_report_generator import (
     RETAIL_FILE as DEFAULT_RETAIL_FILE,
     generate_channel_report,
 )
+from workbook_styles import style_service_workbook
 
 # Constants
 BASE_DIR = Path(__file__).resolve().parent
@@ -107,21 +107,6 @@ def build_final_rows(report_df: pd.DataFrame) -> list[dict[str, object]]:
     final_rows.append({"Region": "Grand Total", "State": "", "Service Center Name": "", "Unit": g_unit, "GWP": int(round(g_gwp))})
     return final_rows
 
-def style_workbook(path: Path):
-    from openpyxl import load_workbook
-    wb = load_workbook(path)
-    ws = wb.active
-    ws.insert_rows(1)
-    ws.merge_cells("A1:E1")
-    ws["A1"] = "Xiaomi DSR Status Report"
-    title_fill, header_fill = PatternFill("solid", fgColor="ED6B2A"), PatternFill("solid", fgColor="A9CBE8")
-    for cell in ws[1]:
-        cell.fill, cell.font, cell.alignment = title_fill, Font(bold=True), Alignment(horizontal="center")
-    for cell in ws[2]:
-        cell.fill, cell.font, cell.alignment = header_fill, Font(bold=True), Alignment(horizontal="center")
-    fill_empty_numeric_cells(ws, numeric_columns=(4, 5), min_row=3)
-    wb.save(path)
-
 def generate_service_report(service_path: Path, master_path: Path) -> dict[str, object]:
     service = pd.read_csv(service_path)
     validate_columns(service, REQUIRED_SERVICE_COLUMNS, "Service report")
@@ -149,8 +134,8 @@ def generate_service_report(service_path: Path, master_path: Path) -> dict[str, 
     ).sort_values(["Region", "State", "ServiceCenter"], kind="stable")
     
     final_report = pd.DataFrame(build_final_rows(report_df))
-    final_report.to_excel(FINAL_REPORT_FILE, index=False)
-    style_workbook(FINAL_REPORT_FILE)
+    final_report.to_excel(FINAL_REPORT_FILE, index=False, sheet_name="Daily Report")
+    style_service_workbook(FINAL_REPORT_FILE)
     
     grand_total = final_report[final_report["Region"] == "Grand Total"].iloc[0]
     

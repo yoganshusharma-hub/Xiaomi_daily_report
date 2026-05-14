@@ -10,6 +10,7 @@ import traceback
 from typing import Optional
 
 import engine
+from api.frontend_bundle import EMBEDDED_INDEX_HTML
 
 app = FastAPI(title="Xiaomi Daily Report Engine API")
 
@@ -24,20 +25,18 @@ if STATIC_DIR.exists():
 
 @lru_cache(maxsize=1)
 def load_frontend_html() -> str:
-    if not INDEX_FILE.exists():
-        return "<h1>Xiaomi Daily Report Engine</h1><p>Frontend not found.</p>"
+    if not (INDEX_FILE.exists() and STYLES_FILE.exists() and APP_JS_FILE.exists()):
+        return EMBEDDED_INDEX_HTML
 
     html = INDEX_FILE.read_text(encoding="utf-8")
-    if STYLES_FILE.exists():
-        html = html.replace(
-            '<link rel="stylesheet" href="/static/styles.css">',
-            f"<style>\n{STYLES_FILE.read_text(encoding='utf-8')}\n</style>",
-        )
-    if APP_JS_FILE.exists():
-        html = html.replace(
-            '<script src="/static/app.js"></script>',
-            f"<script>\n{APP_JS_FILE.read_text(encoding='utf-8')}\n</script>",
-        )
+    html = html.replace(
+        '<link rel="stylesheet" href="/static/styles.css">',
+        f"<style>\n{STYLES_FILE.read_text(encoding='utf-8')}\n</style>",
+    )
+    html = html.replace(
+        '<script src="/static/app.js"></script>',
+        f"<script>\n{APP_JS_FILE.read_text(encoding='utf-8')}\n</script>",
+    )
     return html
 
 @app.get("/", response_class=HTMLResponse)

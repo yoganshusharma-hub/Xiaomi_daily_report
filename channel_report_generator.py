@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from workbook_styles import style_channel_workbook
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path("/tmp") if os.getenv("VERCEL") else BASE_DIR
@@ -264,6 +265,7 @@ def generate_channel_report(
     ]
     final_report[numeric_columns] = final_report[numeric_columns].fillna(0).astype(int)
     final_report.to_excel(output_path, index=False)
+    style_channel_workbook(output_path)
     return final_report
 
 
