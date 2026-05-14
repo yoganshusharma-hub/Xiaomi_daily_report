@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import os
 import shutil
 import tempfile
 import warnings
@@ -29,14 +30,16 @@ with warnings.catch_warnings():
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+OUTPUT_DIR = Path("/tmp") if os.getenv("VERCEL") else BASE_DIR
 
 DEFAULT_SERVICE_FILE = BASE_DIR / "mi_smart_report (6).csv"
 DEFAULT_SERVICE_MASTER_FILE = BASE_DIR / "current_service_master.xlsx"
 DEFAULT_CHANNEL_MASTER_FILE = BASE_DIR / "Master April'26.xlsb"
-FINAL_REPORT_FILE = BASE_DIR / "final_report.xlsx"
-ZONAL_REPORT_FILE = BASE_DIR / "zonal_report.xlsx"
+FINAL_REPORT_FILE = OUTPUT_DIR / "final_report.xlsx"
+ZONAL_REPORT_FILE = OUTPUT_DIR / "zonal_report.xlsx"
 
 APP_NAME = "Xiaomi Daily Report Engine"
+EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 REQUIRED_SERVICE_COLUMNS = {
     "PAYMENT STATUS",
@@ -447,8 +450,8 @@ def generate_service_report(service_path: Path, master_path: Path) -> dict[str, 
         "preview": final_report.head(40).to_dict(orient="records"),
         "columns": final_report.columns.tolist(),
         "downloads": {
-            "final_report": "/download/final_report.xlsx",
-            "zonal_report": "/download/zonal_report.xlsx",
+            "final_report": "final_report",
+            "zonal_report": "zonal_report",
         },
     }
 
@@ -494,7 +497,7 @@ def generate_channel_payload(axio_path: Path, retail_path: Path, master_path: Pa
         "preview": channel_report.head(40).to_dict(orient="records"),
         "columns": channel_report.columns.tolist(),
         "downloads": {
-            "channel_report": "/download/final_channel_report.xlsx",
+            "channel_report": "channel_report",
         },
     }
     return channel_payload
@@ -650,7 +653,8 @@ class XiaomiReportHandler(BaseHTTPRequestHandler):
         write_json(self, {"error": "Route not found."}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
-        if urlparse(self.path).path != "/api/generate":
+        path = urlparse(self.path).path
+        if path not in {"/api/generate", "/api/download"}:
             write_json(self, {"error": "Route not found."}, HTTPStatus.NOT_FOUND)
             return
 
@@ -660,13 +664,17 @@ class XiaomiReportHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            result = self.handle_generate()
-            write_json(self, result)
+            if path == "/api/generate":
+                result = self.handle_generate()
+                write_json(self, result)
+                return
+
+            self.handle_download()
         except Exception as exc:
             write_json(self, {"error": str(exc)}, HTTPStatus.BAD_REQUEST)
 
-    def handle_generate(self) -> dict[str, object]:
-        form = cgi.FieldStorage(
+    def parse_form(self) -> cgi.FieldStorage:
+        return cgi.FieldStorage(
             fp=self.rfile,
             headers=self.headers,
             environ={
@@ -676,55 +684,87 @@ class XiaomiReportHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def resolve_report_request(
+        self,
+        form: cgi.FieldStorage,
+        temp_path: Path,
+    ) -> tuple[str, dict[str, Path]]:
+        report_type = self.field_value(form, "report_type") or "service"
+
+        if report_type == "service":
+            service_path = self.materialise_upload(form, "service_file", temp_path) or DEFAULT_SERVICE_FILE
+            master_path = self.materialise_upload(form, "master_file", temp_path) or DEFAULT_SERVICE_MASTER_FILE
+
+            if not service_path.exists():
+                raise FileNotFoundError(f"Daily service report not found: {service_path.name}")
+            if not master_path.exists():
+                raise FileNotFoundError(f"Service master not found: {master_path.name}")
+
+            return (
+                "service",
+                {
+                    "service_path": service_path,
+                    "service_master_path": master_path,
+                },
+            )
+
+        if report_type == "channel":
+            axio_path = self.materialise_upload(form, "axio_file", temp_path) or DEFAULT_AXIO_FILE
+            retail_path = self.materialise_upload(form, "retail_file", temp_path) or DEFAULT_RETAIL_FILE
+            master_path = self.materialise_upload(form, "master_file", temp_path) or DEFAULT_CHANNEL_MASTER_FILE
+
+            if not axio_path.exists():
+                raise FileNotFoundError(f"AXIO report not found: {axio_path.name}")
+            if not retail_path.exists():
+                raise FileNotFoundError(f"Retail report not found: {retail_path.name}")
+            if not master_path.exists():
+                raise FileNotFoundError(f"Channel master not found: {master_path.name}")
+
+            return (
+                "channel",
+                {
+                    "axio_path": axio_path,
+                    "retail_path": retail_path,
+                    "channel_master_path": master_path,
+                },
+            )
+
+        raise ValueError("Choose Service or Channel report.")
+
+    def handle_generate(self) -> dict[str, object]:
+        form = self.parse_form()
+
         with tempfile.TemporaryDirectory(prefix="xiaomi-report-") as temp_dir:
             temp_path = Path(temp_dir)
-            report_type = self.field_value(form, "report_type") or "service"
+            report_type, report_kwargs = self.resolve_report_request(form, temp_path)
+            return generate_reports(report_type, **report_kwargs)
 
-            if report_type == "service":
-                service_path = (
-                    self.materialise_upload(form, "service_file", temp_path) or DEFAULT_SERVICE_FILE
-                )
-                master_path = (
-                    self.materialise_upload(form, "master_file", temp_path)
-                    or DEFAULT_SERVICE_MASTER_FILE
-                )
+    def handle_download(self) -> None:
+        form = self.parse_form()
+        download_key = self.field_value(form, "download_key")
+        if download_key is None:
+            raise ValueError("Choose a download file.")
 
-                if not service_path.exists():
-                    raise FileNotFoundError(f"Daily service report not found: {service_path.name}")
-                if not master_path.exists():
-                    raise FileNotFoundError(f"Service master not found: {master_path.name}")
+        with tempfile.TemporaryDirectory(prefix="xiaomi-report-") as temp_dir:
+            temp_path = Path(temp_dir)
+            report_type, report_kwargs = self.resolve_report_request(form, temp_path)
+            report_payload = generate_reports(report_type, **report_kwargs)
+            available_downloads = report_payload.get("downloads", {})
+            if download_key not in available_downloads:
+                raise ValueError("Download is not available for the selected report.")
 
-                return generate_reports(
-                    "service",
-                    service_path=service_path,
-                    service_master_path=master_path,
-                )
-
-            if report_type == "channel":
-                axio_path = self.materialise_upload(form, "axio_file", temp_path) or DEFAULT_AXIO_FILE
-                retail_path = (
-                    self.materialise_upload(form, "retail_file", temp_path) or DEFAULT_RETAIL_FILE
-                )
-                master_path = (
-                    self.materialise_upload(form, "master_file", temp_path)
-                    or DEFAULT_CHANNEL_MASTER_FILE
-                )
-
-                if not axio_path.exists():
-                    raise FileNotFoundError(f"AXIO report not found: {axio_path.name}")
-                if not retail_path.exists():
-                    raise FileNotFoundError(f"Retail report not found: {retail_path.name}")
-                if not master_path.exists():
-                    raise FileNotFoundError(f"Channel master not found: {master_path.name}")
-
-                return generate_reports(
-                    "channel",
-                    axio_path=axio_path,
-                    retail_path=retail_path,
-                    channel_master_path=master_path,
-                )
-
-            raise ValueError("Choose Service or Channel report.")
+            download_targets = {
+                "final_report": (FINAL_REPORT_FILE, "final_report.xlsx"),
+                "zonal_report": (ZONAL_REPORT_FILE, "zonal_report.xlsx"),
+                "channel_report": (CHANNEL_REPORT_FILE, "final_channel_report.xlsx"),
+            }
+            path, attachment_name = download_targets[download_key]
+            serve_file(
+                self,
+                path,
+                EXCEL_CONTENT_TYPE,
+                attachment_name,
+            )
 
     @staticmethod
     def field_value(form: cgi.FieldStorage, field_name: str) -> str | None:
@@ -768,6 +808,9 @@ def run(host: str, port: int) -> None:
     print(f"{APP_NAME} running at http://{host}:{port}")
     print("Press Ctrl+C to stop.")
     server.serve_forever()
+
+
+handler = XiaomiReportHandler
 
 
 if __name__ == "__main__":

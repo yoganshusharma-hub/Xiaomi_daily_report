@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Xiaomi Daily Report Engine</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">mi</div>
+          <div>
+            <h1>Xiaomi Daily Report Engine</h1>
+            <p>Daily GWP and zonal report workspace</p>
+          </div>
+        </div>
+        <div class="run-state" id="runState">Ready</div>
+      </header>
+
+      <main class="workspace">
+        <aside class="input-panel" aria-label="Report inputs">
+          <div class="panel-heading">
+            <span class="eyebrow">Inputs</span>
+            <h2>Report Files</h2>
+          </div>
+
+          <div class="default-list" id="defaultList" aria-live="polite">
+            <div class="file-status">
+              <span class="status-dot"></span>
+              <div>
+                <strong>Daily service report</strong>
+                <small>Checking local file</small>
+              </div>
+            </div>
+            <div class="file-status">
+              <span class="status-dot"></span>
+              <div>
+                <strong>Master workbook</strong>
+                <small>Checking local file</small>
+              </div>
+            </div>
+          </div>
+
+          <form id="reportForm" class="report-form">
+            <input id="reportType" name="report_type" type="hidden" value="service">
+
+            <label class="upload-box" for="serviceFile" data-report-input="service">
+              <span class="upload-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="img">
+                  <path d="M12 3v12m0-12 4 4m-4-4-4 4M5 15v4h14v-4"></path>
+                </svg>
+              </span>
+              <span>
+                <strong>MI smart report CSV</strong>
+                <small id="serviceFileName">Use local default or choose a CSV</small>
+              </span>
+              <input id="serviceFile" name="service_file" type="file" accept=".csv,text/csv">
+            </label>
+
+            <label class="upload-box" for="axioFile" data-report-input="channel" hidden>
+              <span class="upload-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="img">
+                  <path d="M4 19h16M7 16V8m5 8V5m5 11v-6"></path>
+                </svg>
+              </span>
+              <span>
+                <strong>AXIO report CSV</strong>
+                <small id="axioFileName">Use local default or choose a CSV</small>
+              </span>
+              <input id="axioFile" name="axio_file" type="file" accept=".csv,text/csv">
+            </label>
+
+            <label class="upload-box" for="retailFile" data-report-input="channel" hidden>
+              <span class="upload-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="img">
+                  <path d="M4 7h16M4 12h16M4 17h16"></path>
+                </svg>
+              </span>
+              <span>
+                <strong>Retail report CSV</strong>
+                <small id="retailFileName">Use local default or choose a CSV</small>
+              </span>
+              <input id="retailFile" name="retail_file" type="file" accept=".csv,text/csv">
+            </label>
+
+            <label class="upload-box" for="masterFile">
+              <span class="upload-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="img">
+                  <path d="M14 3H6v18h12V7l-4-4zM14 3v5h5M8 13h8M8 17h8"></path>
+                </svg>
+              </span>
+              <span>
+                <strong id="masterFileLabel">Service master workbook</strong>
+                <small id="masterFileName">Use local service master or choose XLSX/XLSB</small>
+              </span>
+              <input id="masterFile" name="master_file" type="file" accept=".xlsb,.xlsx,.xls">
+            </label>
+
+            <button class="primary-button" id="generateButton" type="submit">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m5 12 5 5L20 7"></path>
+              </svg>
+              Generate Report
+            </button>
+          </form>
+        </aside>
+
+        <section class="result-panel" aria-label="Report results">
+          <div class="result-header">
+            <div>
+              <span class="eyebrow">Output</span>
+              <h2>Daily Report</h2>
+              <div class="report-switch" role="tablist" aria-label="Report view">
+                <button class="report-tab active" id="serviceReportTab" type="button" data-report="service">
+                  Service
+                </button>
+                <button class="report-tab" id="channelReportTab" type="button" data-report="channel">
+                  Retail + Axio
+                </button>
+              </div>
+            </div>
+            <div class="download-actions">
+              <a class="secondary-button disabled" id="downloadFinal" href="#" aria-disabled="true">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"></path>
+                </svg>
+                Final
+              </a>
+              <a class="secondary-button disabled" id="downloadZonal" href="#" aria-disabled="true">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 19h16M7 16V8m5 8V5m5 11v-6"></path>
+                </svg>
+                Pivot
+              </a>
+              <a class="secondary-button disabled" id="downloadChannel" href="#" aria-disabled="true" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"></path>
+                </svg>
+                Channel
+              </a>
+            </div>
+          </div>
+
+          <div class="summary-grid" id="summaryGrid">
+            <div class="metric-tile">
+              <small>Paid Units</small>
+              <strong>0</strong>
+            </div>
+            <div class="metric-tile">
+              <small>Total GWP</small>
+              <strong>0</strong>
+            </div>
+            <div class="metric-tile">
+              <small>Regions</small>
+              <strong>0</strong>
+            </div>
+            <div class="metric-tile">
+              <small>Unmatched ASC</small>
+              <strong>0</strong>
+            </div>
+          </div>
+
+          <div class="notice" id="notice">
+            Generate a report to preview rows and unlock downloads.
+          </div>
+
+          <div class="table-wrap" id="tableWrap" hidden>
+            <table>
+              <thead id="previewHead"></thead>
+              <tbody id="previewBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

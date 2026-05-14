@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+.vercel/
+/tmp/
+*.xlsx
+*.xlsb
+*.csv
+!mi_smart_report (6).csv
+!current_service_master.xlsx
+!Master April'26.xlsb
+!static/
