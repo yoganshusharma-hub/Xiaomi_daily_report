@@ -131,29 +131,63 @@ def generate_service_report(service_path: Path, master_path: Path) -> dict[str, 
     except:
         master = read_master_workbook(master_path, sheet_name=1)
         master, code_col = normalise_service_master(master)
+    
+    input_rows = len(service)
     service["ASC Code"] = service["ASC Code"].astype(str).str.strip()
     service["CUSTOMER PRICE"] = pd.to_numeric(service["CUSTOMER PRICE"], errors="coerce").fillna(0)
     service = service[service["PAYMENT STATUS"].map(normalise_truthy)].copy()
+    
     merged = service.merge(master, left_on="ASC Code", right_on="ServiceCode", how="left")
+    unmatched = int(merged["ServiceCode"].isna().sum())
     merged["Region"] = clean_dimension(merged["Region"])
     merged["State"] = clean_dimension(merged["State"])
     merged["ServiceCenter"] = clean_dimension(merged["ServiceCenter"])
-    report_df = merged.groupby(["Region", "State", "ServiceCenter"], as_index=False).agg(Unit=("PAYMENT STATUS", "count"), GWP=("CUSTOMER PRICE", "sum")).sort_values(["Region", "State", "ServiceCenter"], kind="stable")
+    
+    report_df = merged.groupby(["Region", "State", "ServiceCenter"], as_index=False).agg(
+        Unit=("PAYMENT STATUS", "count"), 
+        GWP=("CUSTOMER PRICE", "sum")
+    ).sort_values(["Region", "State", "ServiceCenter"], kind="stable")
+    
     final_report = pd.DataFrame(build_final_rows(report_df))
     final_report.to_excel(FINAL_REPORT_FILE, index=False)
     style_workbook(FINAL_REPORT_FILE)
+    
+    grand_total = final_report[final_report["Region"] == "Grand Total"].iloc[0]
+    
     return {
         "label": "Service",
-        "summary": {"total_units": int(final_report.iloc[-1]["Unit"]), "total_gwp": int(final_report.iloc[-1]["GWP"]), "generated_at": datetime.now().strftime("%d %b %Y, %I:%M %p")},
+        "summary": {
+            "paid_rows": len(service),
+            "total_gwp": int(grand_total["GWP"]),
+            "regions": int(report_df["Region"].nunique()),
+            "unmatched_rows": unmatched,
+            "input_rows": input_rows,
+            "service_centers": int(report_df["ServiceCenter"].nunique()),
+            "total_units": int(grand_total["Unit"]),
+            "generated_at": datetime.now().strftime("%d %b %Y, %I:%M %p")
+        },
         "preview": final_report.head(40).to_dict(orient="records"),
         "columns": final_report.columns.tolist()
     }
 
 def generate_channel_payload(axio_path: Path, retail_path: Path, master_path: Path) -> dict[str, object]:
     channel_report = generate_channel_report(axio_path=axio_path, retail_path=retail_path, master_path=master_path, output_path=CHANNEL_REPORT_FILE)
+    grand_total = channel_report[channel_report["State"] == "Grand Total"].iloc[0]
+    
+    # Simple masks for counts
+    state_count = channel_report["State"].astype(str).str.endswith(" Total").sum() - 1
+    
     return {
         "label": "Retail + Axio",
-        "summary": {"total_units": int(channel_report.iloc[-1]["Total Unit"]), "total_gwp": int(channel_report.iloc[-1]["Total GWP"]), "generated_at": datetime.now().strftime("%d %b %Y, %I:%M %p")},
+        "summary": {
+            "total_units": int(grand_total["Total Unit"]),
+            "total_gwp": int(grand_total["Total GWP"]),
+            "axio_units": int(grand_total["AXIO Unit"]),
+            "retail_units": int(grand_total["Retail Unit"]),
+            "states": int(state_count),
+            "stores": len(channel_report[~channel_report["State"].astype(str).str.contains("Total")]),
+            "generated_at": datetime.now().strftime("%d %b %Y, %I:%M %p")
+        },
         "preview": channel_report.head(40).to_dict(orient="records"),
         "columns": channel_report.columns.tolist()
     }
