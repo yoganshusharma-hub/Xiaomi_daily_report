@@ -2,10 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     { "source": "/", "destination": "/static/index.html" }
-  ],
-  "functions": {
-    "api/*.py": {
-      "excludeFiles": "{venv/**,__pycache__/**,.git/**,.DS_Store,report_generator.ipynb,retail_axio_report.ipynb,static/**}"
-    }
-  }
+  ]
 }
