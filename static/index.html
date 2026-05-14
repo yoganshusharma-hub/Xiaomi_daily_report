@@ -30,14 +30,7 @@
             <div class="file-status">
               <span class="status-dot"></span>
               <div>
-                <strong>Daily service report</strong>
-                <small>Checking local file</small>
-              </div>
-            </div>
-            <div class="file-status">
-              <span class="status-dot"></span>
-              <div>
-                <strong>Master workbook</strong>
+                <strong>Daily report CSV</strong>
                 <small>Checking local file</small>
               </div>
             </div>
@@ -83,19 +76,6 @@
                 <small id="retailFileName">Use local default or choose a CSV</small>
               </span>
               <input id="retailFile" name="retail_file" type="file" accept=".csv,text/csv">
-            </label>
-
-            <label class="upload-box" for="masterFile">
-              <span class="upload-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" role="img">
-                  <path d="M14 3H6v18h12V7l-4-4zM14 3v5h5M8 13h8M8 17h8"></path>
-                </svg>
-              </span>
-              <span>
-                <strong id="masterFileLabel">Service master workbook</strong>
-                <small id="masterFileName">Use local service master or choose XLSX/XLSB</small>
-              </span>
-              <input id="masterFile" name="master_file" type="file" accept=".xlsb,.xlsx,.xls">
             </label>
 
             <button class="primary-button" id="generateButton" type="submit">

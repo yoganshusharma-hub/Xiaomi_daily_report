@@ -154,11 +154,9 @@ function renderDefaultStatus() {
     ? [
         renderFileStatus("AXIO report", defaults.axio),
         renderFileStatus("Retail report", defaults.retail),
-        renderFileStatus("Channel master workbook", defaults.channel_master),
       ]
     : [
         renderFileStatus("Daily service report", defaults.service),
-        renderFileStatus("Service master workbook", defaults.service_master),
       ];
 
   defaultList.innerHTML = rows.join("");
@@ -170,13 +168,6 @@ function setVisibleInputs(reportKey) {
   });
 
   reportType.value = reportKey;
-  masterFile.value = "";
-  masterFileLabel.textContent = reportKey === "channel"
-    ? "Channel master workbook"
-    : "Service master workbook";
-  masterFileName.textContent = reportKey === "channel"
-    ? "Use local channel master or choose XLSB/XLSX"
-    : "Use local service master or choose XLSX/XLSB";
 }
 
 function switchReport(reportKey, options = {}) {
@@ -331,7 +322,7 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   // Vercel 4.5MB limit check
-  const files = [serviceFile, axioFile, retailFile, masterFile];
+  const files = [serviceFile, axioFile, retailFile];
   let totalSize = 0;
   for (const f of files) {
     if (f.files[0]) totalSize += f.files[0].size;
