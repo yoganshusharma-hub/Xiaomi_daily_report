@@ -6,12 +6,9 @@ const reportType = document.querySelector("#reportType");
 const serviceFile = document.querySelector("#serviceFile");
 const axioFile = document.querySelector("#axioFile");
 const retailFile = document.querySelector("#retailFile");
-const masterFile = document.querySelector("#masterFile");
 const serviceFileName = document.querySelector("#serviceFileName");
 const axioFileName = document.querySelector("#axioFileName");
 const retailFileName = document.querySelector("#retailFileName");
-const masterFileLabel = document.querySelector("#masterFileLabel");
-const masterFileName = document.querySelector("#masterFileName");
 const summaryGrid = document.querySelector("#summaryGrid");
 const notice = document.querySelector("#notice");
 const tableWrap = document.querySelector("#tableWrap");
@@ -275,16 +272,6 @@ axioFile.addEventListener("change", () => {
 
 retailFile.addEventListener("change", () => {
   retailFileName.textContent = retailFile.files[0]?.name || "Use local default or choose a CSV";
-});
-
-masterFile.addEventListener("change", () => {
-  if (masterFile.files[0]) {
-    masterFileName.textContent = masterFile.files[0].name;
-    return;
-  }
-  masterFileName.textContent = activeReport === "channel"
-    ? "Use local channel master or choose XLSB/XLSX"
-    : "Use local service master or choose XLSX/XLSB";
 });
 
 reportTabs.forEach((tab) => {
