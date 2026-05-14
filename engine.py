@@ -1,0 +1,164 @@
+from __future__ import annotations
+import os
+import json
+import warnings
+from datetime import datetime
+from pathlib import Path
+import pandas as pd
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+from channel_report_generator import (
+    AXIO_FILE as DEFAULT_AXIO_FILE,
+    OUTPUT_FILE as CHANNEL_REPORT_FILE,
+    RETAIL_FILE as DEFAULT_RETAIL_FILE,
+    generate_channel_report,
+)
+
+# Constants
+BASE_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = Path("/tmp") if os.getenv("VERCEL") else BASE_DIR
+
+DEFAULT_SERVICE_FILE = BASE_DIR / "mi_smart_report (6).csv"
+DEFAULT_SERVICE_MASTER_FILE = BASE_DIR / "current_service_master.xlsx"
+DEFAULT_CHANNEL_MASTER_FILE = BASE_DIR / "Master April'26.xlsb"
+FINAL_REPORT_FILE = OUTPUT_DIR / "final_report.xlsx"
+ZONAL_REPORT_FILE = OUTPUT_DIR / "zonal_report.xlsx"
+
+APP_NAME = "Xiaomi Daily Report Engine"
+EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+REQUIRED_SERVICE_COLUMNS = {"PAYMENT STATUS", "ASC Code", "CUSTOMER PRICE"}
+NEW_SERVICE_MASTER_COLUMNS = {"Agency_Code", "Agency_Name", "Region"}
+LEGACY_SERVICE_MASTER_COLUMNS = {"ASC_Code", "ASC_Name_BI", "Zone", "State"}
+
+def normalise_truthy(value: object) -> bool:
+    if isinstance(value, bool): return value
+    return str(value).strip().upper() in {"TRUE", "1", "YES", "Y", "PAID"}
+
+def clean_dimension(series: pd.Series) -> pd.Series:
+    cleaned = series.fillna("Blank").astype(str).str.strip()
+    return cleaned.mask(cleaned.eq("") | cleaned.str.lower().eq("nan"), "Blank")
+
+def read_master_workbook(path: Path, sheet_name: int | str = 0) -> pd.DataFrame:
+    suffix = path.suffix.lower()
+    engine = "pyxlsb" if suffix == ".xlsb" else None
+    return pd.read_excel(path, sheet_name=sheet_name, engine=engine)
+
+def validate_columns(frame: pd.DataFrame, required: set[str], label: str) -> None:
+    missing = sorted(required.difference(frame.columns))
+    if missing:
+        raise ValueError(f"{label} is missing required column(s): {', '.join(missing)}")
+
+def ordered_with_blank_last(values: pd.Series) -> list[str]:
+    unique_values = list(dict.fromkeys(values.tolist()))
+    ordered = [value for value in unique_values if value != "Blank"]
+    if "Blank" in unique_values: ordered.append("Blank")
+    return ordered
+
+def normalise_numeric_cell(value: object) -> int:
+    if value in (None, "") or pd.isna(value): return 0
+    return int(round(float(value)))
+
+def fill_empty_numeric_cells(worksheet: object, *, numeric_columns: tuple[int, ...], min_row: int) -> None:
+    for row in worksheet.iter_rows(min_row=min_row):
+        for column in numeric_columns:
+            cell = row[column - 1]
+            cell.value = normalise_numeric_cell(cell.value)
+
+def normalise_service_master(master: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    if NEW_SERVICE_MASTER_COLUMNS.issubset(master.columns):
+        state_col = "State-2" if "State-2" in master.columns else "State"
+        return pd.DataFrame({
+            "ServiceCode": master["Agency_Code"],
+            "Region": master["Region"],
+            "State": master.get(state_col, "Unknown"),
+            "ServiceCenter": master["Agency_Name"],
+        }), "Agency_Code"
+    if LEGACY_SERVICE_MASTER_COLUMNS.issubset(master.columns):
+        return pd.DataFrame({
+            "ServiceCode": master["ASC_Code"],
+            "Region": master["Zone"],
+            "State": master["State"],
+            "ServiceCenter": master["ASC_Name_BI"],
+        }), "ASC_Code"
+    raise ValueError("Master workbook missing required service master columns.")
+
+def build_final_rows(report_df: pd.DataFrame) -> list[dict[str, object]]:
+    final_rows, g_unit, g_gwp = [], 0, 0.0
+    for region in ordered_with_blank_last(report_df["Region"]):
+        region_df = report_df[report_df["Region"] == region]
+        r_unit, r_gwp, first_region = 0, 0.0, True
+        for state in ordered_with_blank_last(region_df["State"]):
+            state_df = region_df[region_df["State"] == state]
+            s_unit, s_gwp = int(state_df["Unit"].sum()), float(state_df["GWP"].sum())
+            r_unit += s_unit; r_gwp += s_gwp; g_unit += s_unit; g_gwp += s_gwp
+            first_state = True
+            for _, row in state_df.iterrows():
+                final_rows.append({
+                    "Region": region if first_region else "",
+                    "State": state if first_state else "",
+                    "Service Center Name": row["ServiceCenter"],
+                    "Unit": int(row["Unit"]),
+                    "GWP": int(round(float(row["GWP"]))),
+                })
+                first_region = first_state = False
+            final_rows.append({"Region": "", "State": f"{state} Total", "Service Center Name": "", "Unit": s_unit, "GWP": int(round(s_gwp))})
+        final_rows.append({"Region": f"{region} Total", "State": "", "Service Center Name": "", "Unit": r_unit, "GWP": int(round(r_gwp))})
+    final_rows.append({"Region": "Grand Total", "State": "", "Service Center Name": "", "Unit": g_unit, "GWP": int(round(g_gwp))})
+    return final_rows
+
+def style_workbook(path: Path):
+    from openpyxl import load_workbook
+    wb = load_workbook(path)
+    ws = wb.active
+    ws.insert_rows(1)
+    ws.merge_cells("A1:E1")
+    ws["A1"] = "Xiaomi DSR Status Report"
+    title_fill, header_fill = PatternFill("solid", fgColor="ED6B2A"), PatternFill("solid", fgColor="A9CBE8")
+    for cell in ws[1]:
+        cell.fill, cell.font, cell.alignment = title_fill, Font(bold=True), Alignment(horizontal="center")
+    for cell in ws[2]:
+        cell.fill, cell.font, cell.alignment = header_fill, Font(bold=True), Alignment(horizontal="center")
+    fill_empty_numeric_cells(ws, numeric_columns=(4, 5), min_row=3)
+    wb.save(path)
+
+def generate_service_report(service_path: Path, master_path: Path) -> dict[str, object]:
+    service = pd.read_csv(service_path)
+    validate_columns(service, REQUIRED_SERVICE_COLUMNS, "Service report")
+    master = read_master_workbook(master_path)
+    try:
+        master, code_col = normalise_service_master(master)
+    except:
+        master = read_master_workbook(master_path, sheet_name=1)
+        master, code_col = normalise_service_master(master)
+    service["ASC Code"] = service["ASC Code"].astype(str).str.strip()
+    service["CUSTOMER PRICE"] = pd.to_numeric(service["CUSTOMER PRICE"], errors="coerce").fillna(0)
+    service = service[service["PAYMENT STATUS"].map(normalise_truthy)].copy()
+    merged = service.merge(master, left_on="ASC Code", right_on="ServiceCode", how="left")
+    merged["Region"] = clean_dimension(merged["Region"])
+    merged["State"] = clean_dimension(merged["State"])
+    merged["ServiceCenter"] = clean_dimension(merged["ServiceCenter"])
+    report_df = merged.groupby(["Region", "State", "ServiceCenter"], as_index=False).agg(Unit=("PAYMENT STATUS", "count"), GWP=("CUSTOMER PRICE", "sum")).sort_values(["Region", "State", "ServiceCenter"], kind="stable")
+    final_report = pd.DataFrame(build_final_rows(report_df))
+    final_report.to_excel(FINAL_REPORT_FILE, index=False)
+    style_workbook(FINAL_REPORT_FILE)
+    return {
+        "label": "Service",
+        "summary": {"total_units": int(final_report.iloc[-1]["Unit"]), "total_gwp": int(final_report.iloc[-1]["GWP"]), "generated_at": datetime.now().strftime("%d %b %Y, %I:%M %p")},
+        "preview": final_report.head(40).to_dict(orient="records"),
+        "columns": final_report.columns.tolist()
+    }
+
+def generate_channel_payload(axio_path: Path, retail_path: Path, master_path: Path) -> dict[str, object]:
+    channel_report = generate_channel_report(axio_path=axio_path, retail_path=retail_path, master_path=master_path, output_path=CHANNEL_REPORT_FILE)
+    return {
+        "label": "Retail + Axio",
+        "summary": {"total_units": int(channel_report.iloc[-1]["Total Unit"]), "total_gwp": int(channel_report.iloc[-1]["Total GWP"]), "generated_at": datetime.now().strftime("%d %b %Y, %I:%M %p")},
+        "preview": channel_report.head(40).to_dict(orient="records"),
+        "columns": channel_report.columns.tolist()
+    }
+
+def file_status(path: Path) -> dict[str, object]:
+    if not path.exists(): return {"exists": False, "name": path.name}
+    stat = path.stat()
+    return {"exists": True, "name": path.name, "size": stat.st_size, "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%d %b %Y, %I:%M %p")}
