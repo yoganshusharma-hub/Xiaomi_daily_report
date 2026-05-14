@@ -23,12 +23,16 @@ from channel_report_generator import (
     generate_channel_report,
 )
 
+import sys
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", DeprecationWarning)
     import cgi
 
-
-BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 OUTPUT_DIR = Path("/tmp") if os.getenv("VERCEL") else BASE_DIR
 
