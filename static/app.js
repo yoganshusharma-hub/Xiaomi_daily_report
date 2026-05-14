@@ -329,6 +329,19 @@ reportTabs.forEach((tab) => {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+
+  // Vercel 4.5MB limit check
+  const files = [serviceFile, axioFile, retailFile, masterFile];
+  let totalSize = 0;
+  for (const f of files) {
+    if (f.files[0]) totalSize += f.files[0].size;
+  }
+
+  if (totalSize > 4.4 * 1024 * 1024) {
+    showNotice("Total upload size exceeds 4.5MB (Vercel limit). Please use smaller files.", true);
+    return;
+  }
+
   generateButton.disabled = true;
   setRunState("Running");
   showNotice("Generating report...");

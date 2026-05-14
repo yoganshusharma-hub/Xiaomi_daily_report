@@ -79,6 +79,19 @@ async def download_post(
     master_file: Optional[UploadFile] = File(None),
 ):
     try:
+        # Optimization: If the file already exists in /tmp (from a recent generation), just serve it.
+        # This is very helpful on Vercel when the lambda stays warm.
+        targets = {
+            "final_report": engine.FINAL_REPORT_FILE,
+            "zonal_report": engine.ZONAL_REPORT_FILE,
+            "channel_report": engine.CHANNEL_REPORT_FILE,
+        }
+        
+        target_path = targets.get(download_key)
+        if target_path and target_path.exists():
+            return await handle_download_logic(download_key)
+            
+        # If not found, we MUST regenerate.
         await run_generation_logic(report_type, service_file, axio_file, retail_file, master_file)
         return await handle_download_logic(download_key)
     except Exception as e:
