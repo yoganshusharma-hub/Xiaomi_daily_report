@@ -171,26 +171,51 @@ def generate_service_report(service_path: Path, master_path: Path) -> dict[str, 
     }
 
 def generate_channel_payload(axio_path: Path, retail_path: Path, master_path: Path) -> dict[str, object]:
-    channel_report = generate_channel_report(axio_path=axio_path, retail_path=retail_path, master_path=master_path, output_path=CHANNEL_REPORT_FILE)
-    grand_total = channel_report[channel_report["State"] == "Grand Total"].iloc[0]
-    
-    # Simple masks for counts
-    state_count = channel_report["State"].astype(str).str.endswith(" Total").sum() - 1
-    
-    return {
-        "label": "Retail + Axio",
-        "summary": {
-            "total_units": int(grand_total["Total Unit"]),
-            "total_gwp": int(grand_total["Total GWP"]),
-            "axio_units": int(grand_total["AXIO Unit"]),
-            "retail_units": int(grand_total["Retail Unit"]),
-            "states": int(state_count),
-            "stores": len(channel_report[~channel_report["State"].astype(str).str.contains("Total")]),
-            "generated_at": datetime.now().strftime("%d %b %Y, %I:%M %p")
-        },
-        "preview": channel_report.head(40).to_dict(orient="records"),
-        "columns": channel_report.columns.tolist()
-    }
+    try:
+        channel_report = generate_channel_report(
+            axio_path=axio_path, 
+            retail_path=retail_path, 
+            master_path=master_path, 
+            output_path=CHANNEL_REPORT_FILE
+        )
+        
+        if channel_report.empty:
+            raise ValueError("The generated channel report is empty. Check your input files.")
+            
+        grand_total_rows = channel_report[channel_report["State"] == "Grand Total"]
+        if grand_total_rows.empty:
+            # Fallback if Grand Total is named differently or missing
+            grand_total = channel_report.iloc[-1]
+        else:
+            grand_total = grand_total_rows.iloc[0]
+            
+        # Safely count states and stores
+        state_series = channel_report["State"].astype(str)
+        state_count = state_series.str.endswith(" Total").sum()
+        if "Grand Total" in state_series.values:
+            state_count -= 1
+            
+        detail_rows = channel_report[
+            ~state_series.str.contains("Total", na=False) & 
+            ~channel_report["DistributorName"].astype(str).str.contains("Total", na=False)
+        ]
+
+        return {
+            "label": "Retail + Axio",
+            "summary": {
+                "total_units": int(grand_total.get("Total Unit", 0)),
+                "total_gwp": int(grand_total.get("Total GWP", 0)),
+                "axio_units": int(grand_total.get("AXIO Unit", 0)),
+                "retail_units": int(grand_total.get("Retail Unit", 0)),
+                "states": int(max(0, state_count)),
+                "stores": len(detail_rows),
+                "generated_at": datetime.now().strftime("%d %b %Y, %I:%M %p")
+            },
+            "preview": channel_report.head(40).to_dict(orient="records"),
+            "columns": channel_report.columns.tolist()
+        }
+    except Exception as e:
+        raise ValueError(f"Channel Report Error: {str(e)}")
 
 def file_status(path: Path) -> dict[str, object]:
     if not path.exists(): return {"exists": False, "name": path.name}
