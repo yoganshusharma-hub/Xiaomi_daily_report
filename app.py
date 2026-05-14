@@ -591,6 +591,13 @@ class XiaomiReportHandler(BaseHTTPRequestHandler):
     server_version = "XiaomiReportEngine/1.0"
 
     def do_GET(self) -> None:
+        try:
+            self._safe_do_GET()
+        except Exception as e:
+            import traceback
+            write_json(self, {"error": "Server Error", "traceback": traceback.format_exc()}, 500)
+
+    def _safe_do_GET(self) -> None:
         path = unquote(urlparse(self.path).path)
 
         if path == "/":
@@ -657,6 +664,13 @@ class XiaomiReportHandler(BaseHTTPRequestHandler):
         write_json(self, {"error": "Route not found."}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
+        try:
+            self._safe_do_POST()
+        except Exception as e:
+            import traceback
+            write_json(self, {"error": "Server Error", "traceback": traceback.format_exc()}, 500)
+
+    def _safe_do_POST(self) -> None:
         path = urlparse(self.path).path
         if path not in {"/api/generate", "/api/download"}:
             write_json(self, {"error": "Route not found."}, HTTPStatus.NOT_FOUND)
