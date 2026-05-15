@@ -38,6 +38,75 @@ a {
   min-height: 100vh;
 }
 
+.auth-shell {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 105, 0, 0.14), transparent 32%),
+    linear-gradient(180deg, #fffaf5 0%, #f6f7f9 52%, #eef2f7 100%);
+}
+
+.auth-card {
+  width: min(460px, 100%);
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow);
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.auth-brand p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.auth-field {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-field span {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.auth-field input {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--ink);
+}
+
+.auth-field input:focus {
+  outline: 2px solid rgba(255, 105, 0, 0.18);
+  border-color: var(--brand);
+}
+
+.auth-note {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -102,6 +171,12 @@ h2 {
   background: rgba(255, 255, 255, 0.07);
   font-size: 13px;
   font-weight: 700;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .workspace {

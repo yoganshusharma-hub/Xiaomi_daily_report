@@ -1,18 +1,28 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Request, Response
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from functools import lru_cache
 from pathlib import Path
+from pydantic import BaseModel
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 import shutil
 import tempfile
 import os
 import traceback
+import json
 from typing import Optional
 
 import engine
 from api.frontend_bundle import EMBEDDED_INDEX_HTML
 
 app = FastAPI(title="Xiaomi Daily Report Engine API")
+
+SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL", "").rstrip("/")
+SUPABASE_PUBLISHABLE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "")
+AUTH_COOKIE_NAME = "zopper-access-token"
+ALLOWED_EMAIL_DOMAIN = "@zopper.com"
+COOKIE_SECURE = bool(os.getenv("VERCEL"))
 
 # Mount static files
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -21,6 +31,106 @@ STYLES_FILE = STATIC_DIR / "styles.css"
 APP_JS_FILE = STATIC_DIR / "app.js"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+class LoginPayload(BaseModel):
+    email: str
+    password: str
+
+
+def normalise_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def is_allowed_email(email: str) -> bool:
+    normalised = normalise_email(email)
+    local_part, separator, domain = normalised.partition("@")
+    return bool(local_part and separator and f"@{domain}" == ALLOWED_EMAIL_DOMAIN)
+
+
+def ensure_supabase_config() -> None:
+    if not SUPABASE_URL or not SUPABASE_PUBLISHABLE_KEY:
+        raise HTTPException(500, "Supabase authentication is not configured.")
+
+
+def supabase_request(
+    path: str,
+    *,
+    method: str = "GET",
+    payload: Optional[dict[str, object]] = None,
+    access_token: Optional[str] = None,
+) -> dict[str, object]:
+    ensure_supabase_config()
+
+    headers = {"apikey": SUPABASE_PUBLISHABLE_KEY}
+    body = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        body = json.dumps(payload).encode("utf-8")
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+
+    request = urllib_request.Request(
+        f"{SUPABASE_URL}{path}",
+        data=body,
+        headers=headers,
+        method=method,
+    )
+
+    try:
+        with urllib_request.urlopen(request) as response:
+            raw = response.read().decode("utf-8") or "{}"
+            return json.loads(raw)
+    except urllib_error.HTTPError as exc:
+        raw = exc.read().decode("utf-8") if exc.fp else ""
+        message = "Authentication failed."
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                message = (
+                    parsed.get("msg")
+                    or parsed.get("error_description")
+                    or parsed.get("message")
+                    or parsed.get("error")
+                    or message
+                )
+            except json.JSONDecodeError:
+                message = raw
+        raise HTTPException(401 if exc.code in {400, 401, 403} else 502, message)
+    except urllib_error.URLError:
+        raise HTTPException(502, "Could not reach Supabase authentication service.")
+
+
+def fetch_authenticated_user(access_token: str) -> dict[str, object]:
+    return supabase_request("/auth/v1/user", access_token=access_token)
+
+
+def set_auth_cookie(response: Response, access_token: str, expires_in: int) -> None:
+    response.set_cookie(
+        AUTH_COOKIE_NAME,
+        access_token,
+        max_age=expires_in,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+        path="/",
+    )
+
+
+def clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(AUTH_COOKIE_NAME, path="/")
+
+
+async def get_authenticated_user(request: Request) -> dict[str, object]:
+    access_token = request.cookies.get(AUTH_COOKIE_NAME)
+    if not access_token:
+        raise HTTPException(401, "Please sign in.")
+
+    user = fetch_authenticated_user(access_token)
+    email = str(user.get("email", ""))
+    if not is_allowed_email(email):
+        raise HTTPException(403, "Only @zopper.com accounts are allowed.")
+    return user
 
 
 @lru_cache(maxsize=1)
@@ -43,8 +153,46 @@ def load_frontend_html() -> str:
 async def read_index():
     return load_frontend_html()
 
+@app.post("/api/auth/login")
+async def login(payload: LoginPayload, response: Response):
+    email = normalise_email(payload.email)
+    password = payload.password.strip()
+
+    if not is_allowed_email(email):
+        raise HTTPException(400, "Use your @zopper.com email address.")
+    if not password:
+        raise HTTPException(400, "Password is required.")
+
+    session = supabase_request(
+        "/auth/v1/token?grant_type=password",
+        method="POST",
+        payload={"email": email, "password": password},
+    )
+    access_token = str(session.get("access_token", ""))
+    if not access_token:
+        raise HTTPException(401, "Login failed.")
+
+    user = session.get("user") or fetch_authenticated_user(access_token)
+    if not is_allowed_email(str(user.get("email", ""))):
+        raise HTTPException(403, "Only @zopper.com accounts are allowed.")
+
+    set_auth_cookie(response, access_token, int(session.get("expires_in", 3600)))
+    return {"user": {"email": str(user.get("email", email))}}
+
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    clear_auth_cookie(response)
+    return {"ok": True}
+
+
+@app.get("/api/auth/session")
+async def auth_session(user: dict[str, object] = Depends(get_authenticated_user)):
+    return {"user": {"email": str(user.get("email", ""))}}
+
+
 @app.get("/api/status")
-async def get_status():
+async def get_status(user: dict[str, object] = Depends(get_authenticated_user)):
     try:
         return {
             "app_name": engine.APP_NAME,
@@ -70,6 +218,7 @@ async def generate(
     service_file: Optional[UploadFile] = File(None),
     axio_file: Optional[UploadFile] = File(None),
     retail_file: Optional[UploadFile] = File(None),
+    user: dict[str, object] = Depends(get_authenticated_user),
 ):
     try:
         result = await run_generation_logic(report_type, service_file, axio_file, retail_file)
@@ -85,7 +234,7 @@ async def generate(
         return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
 
 @app.get("/download/{file_key}.xlsx")
-async def download_get(file_key: str):
+async def download_get(file_key: str, user: dict[str, object] = Depends(get_authenticated_user)):
     return await handle_download_logic(file_key)
 
 @app.post("/api/download")
@@ -95,6 +244,7 @@ async def download_post(
     service_file: Optional[UploadFile] = File(None),
     axio_file: Optional[UploadFile] = File(None),
     retail_file: Optional[UploadFile] = File(None),
+    user: dict[str, object] = Depends(get_authenticated_user),
 ):
     try:
         # Optimization: If the file already exists in /tmp (from a recent generation), just serve it.

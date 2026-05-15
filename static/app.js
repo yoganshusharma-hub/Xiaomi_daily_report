@@ -1,3 +1,11 @@
+const authShell = document.querySelector("#authShell");
+const appShell = document.querySelector("#appShell");
+const loginForm = document.querySelector("#loginForm");
+const loginButton = document.querySelector("#loginButton");
+const loginEmail = document.querySelector("#loginEmail");
+const loginPassword = document.querySelector("#loginPassword");
+const authMessage = document.querySelector("#authMessage");
+const logoutButton = document.querySelector("#logoutButton");
 const form = document.querySelector("#reportForm");
 const generateButton = document.querySelector("#generateButton");
 const runState = document.querySelector("#runState");
@@ -21,9 +29,30 @@ const numberFormatter = new Intl.NumberFormat("en-IN");
 let currentReports = {};
 let activeReport = document.querySelector(".report-tab.active")?.dataset.report || "service";
 let currentStatus = null;
+let currentUser = null;
 
 function setRunState(label) {
   runState.textContent = label;
+}
+
+function setAuthMessage(message = "") {
+  authMessage.textContent = message;
+  authMessage.hidden = message === "";
+}
+
+function showLogin(message = "") {
+  currentUser = null;
+  authShell.hidden = false;
+  appShell.hidden = true;
+  setAuthMessage(message);
+  loginPassword.value = "";
+}
+
+function showApp(user) {
+  currentUser = user;
+  authShell.hidden = true;
+  appShell.hidden = false;
+  setAuthMessage("");
 }
 
 function formatBytes(bytes) {
@@ -119,8 +148,7 @@ function renderPreview(columns, rows) {
 }
 
 function setDownloadEnabled(link, downloadValue, enabled) {
-  const directHref = enabled && String(downloadValue || "").startsWith("/") ? downloadValue : "#";
-  link.href = directHref;
+  link.href = "#";
   link.dataset.downloadValue = enabled ? String(downloadValue || "") : "";
   link.classList.toggle("disabled", !enabled);
   link.setAttribute("aria-disabled", enabled ? "false" : "true");
@@ -216,10 +244,14 @@ async function triggerGeneratedDownload(downloadKey) {
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      showLogin("Session expired. Please sign in again.");
+      throw new Error("Please sign in again.");
+    }
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
       const data = await response.json();
-      throw new Error(data.error || "Download failed.");
+      throw new Error(data.error || data.detail || "Download failed.");
     }
     throw new Error(await response.text() || "Download failed.");
   }
@@ -236,20 +268,36 @@ async function triggerGeneratedDownload(downloadKey) {
   URL.revokeObjectURL(objectUrl);
 }
 
+async function getSession() {
+  const response = await fetch("/api/auth/session", { cache: "no-store" });
+  if (response.status === 401) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error("Could not verify your session.");
+  }
+  return response.json();
+}
+
 async function loadStatus() {
   const response = await fetch("/api/status", { cache: "no-store" });
+  if (response.status === 401) {
+    showLogin("Session expired. Please sign in again.");
+    throw new Error("Please sign in again.");
+  }
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || data.detail || "Could not read local file status.");
+  }
   currentStatus = await response.json();
   renderDefaultStatus();
 
   const downloads = {};
   if (currentStatus.outputs.final_report.exists) {
-    downloads.final_report = "/download/final_report.xlsx";
-  }
-  if (currentStatus.outputs.zonal_report.exists) {
-    downloads.zonal_report = "/download/zonal_report.xlsx";
+    downloads.final_report = "final_report";
   }
   if (currentStatus.outputs.channel_report.exists) {
-    downloads.channel_report = "/download/final_channel_report.xlsx";
+    downloads.channel_report = "channel_report";
   }
   setDownloads(downloads, activeReport);
 }
@@ -280,10 +328,6 @@ downloadReport.addEventListener("click", async (event) => {
     return;
   }
 
-  if (downloadValue.startsWith("/")) {
-    return;
-  }
-
   event.preventDefault();
   try {
     await triggerGeneratedDownload(downloadValue);
@@ -293,6 +337,55 @@ downloadReport.addEventListener("click", async (event) => {
     showNotice(error.message, true);
     setRunState("Error");
   }
+});
+
+loginForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const email = loginEmail.value.trim().toLowerCase();
+  const password = loginPassword.value;
+  if (!email.endsWith("@zopper.com")) {
+    setAuthMessage("Use your @zopper.com email address.");
+    return;
+  }
+
+  loginButton.disabled = true;
+  setAuthMessage("");
+
+  try {
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || data.error || "Sign in failed.");
+    }
+
+    showApp(data.user);
+    setRunState("Ready");
+    showNotice("Signed in.");
+    switchReport(activeReport, { keepPreview: true });
+    await loadStatus();
+  } catch (error) {
+    setAuthMessage(error.message || "Sign in failed.");
+  } finally {
+    loginButton.disabled = false;
+  }
+});
+
+logoutButton.addEventListener("click", async () => {
+  await fetch("/api/auth/logout", { method: "POST" });
+  currentReports = {};
+  currentStatus = null;
+  activeReport = "service";
+  switchReport("service");
+  renderSummary({}, "service");
+  showLogin("Signed out.");
 });
 
 form.addEventListener("submit", async (event) => {
@@ -320,9 +413,14 @@ form.addEventListener("submit", async (event) => {
       body: new FormData(form),
     });
 
+    if (response.status === 401) {
+      showLogin("Session expired. Please sign in again.");
+      throw new Error("Please sign in again.");
+    }
+
     const data = await response.json();
     if (!response.ok) {
-      throw new Error(data.error || "Report generation failed.");
+      throw new Error(data.error || data.detail || "Report generation failed.");
     }
 
     currentReports = { ...currentReports, ...(data.reports || {}) };
@@ -337,8 +435,22 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-switchReport(activeReport, { keepPreview: true });
-renderSummary({}, activeReport);
-loadStatus().catch(() => {
-  showNotice("Could not read local file status.", true);
-});
+async function initialiseApp() {
+  switchReport(activeReport, { keepPreview: true });
+  renderSummary({}, activeReport);
+
+  try {
+    const session = await getSession();
+    if (!session?.user) {
+      showLogin();
+      return;
+    }
+
+    showApp(session.user);
+    await loadStatus();
+  } catch (error) {
+    showLogin(error.message || "Please sign in.");
+  }
+}
+
+initialiseApp();

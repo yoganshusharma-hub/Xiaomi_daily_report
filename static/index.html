@@ -7,7 +7,52 @@
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
-    <div class="app-shell">
+    <section class="auth-shell" id="authShell" hidden>
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="brand-mark" aria-hidden="true">mi</div>
+          <div>
+            <h1>Xiaomi Daily Report Engine</h1>
+            <p>Sign in with your Zopper email account.</p>
+          </div>
+        </div>
+
+        <form class="auth-form" id="loginForm">
+          <label class="auth-field">
+            <span>Email</span>
+            <input
+              id="loginEmail"
+              name="email"
+              type="email"
+              placeholder="name@zopper.com"
+              autocomplete="username"
+              required
+            >
+          </label>
+
+          <label class="auth-field">
+            <span>Password</span>
+            <input
+              id="loginPassword"
+              name="password"
+              type="password"
+              placeholder="Enter your password"
+              autocomplete="current-password"
+              required
+            >
+          </label>
+
+          <button class="primary-button" id="loginButton" type="submit">
+            Sign In
+          </button>
+        </form>
+
+        <p class="auth-note">Only email addresses ending with <strong>@zopper.com</strong> are allowed.</p>
+        <div class="notice error" id="authMessage" hidden></div>
+      </div>
+    </section>
+
+    <div class="app-shell" id="appShell" hidden>
       <header class="topbar">
         <div class="brand">
           <div class="brand-mark" aria-hidden="true">mi</div>
@@ -16,7 +61,10 @@
             <p>Daily GWP and zonal report workspace</p>
           </div>
         </div>
-        <div class="run-state" id="runState">Ready</div>
+        <div class="topbar-actions">
+          <div class="run-state" id="runState">Ready</div>
+          <button class="secondary-button" id="logoutButton" type="button">Logout</button>
+        </div>
       </header>
 
       <main class="workspace">
