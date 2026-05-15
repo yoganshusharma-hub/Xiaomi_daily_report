@@ -20,7 +20,7 @@ OUTPUT_DIR = Path("/tmp") if os.getenv("VERCEL") else BASE_DIR
 
 DEFAULT_SERVICE_FILE = BASE_DIR / "mi_smart_report (6).csv"
 DEFAULT_SERVICE_MASTER_FILE = BASE_DIR / "current_service_master.xlsx"
-DEFAULT_CHANNEL_MASTER_FILE = BASE_DIR / "Master April'26.xlsb"
+DEFAULT_CHANNEL_MASTER_FILE = BASE_DIR / "Master May'26.xlsb"
 FINAL_REPORT_FILE = OUTPUT_DIR / "final_report.xlsx"
 ZONAL_REPORT_FILE = OUTPUT_DIR / "zonal_report.xlsx"
 
