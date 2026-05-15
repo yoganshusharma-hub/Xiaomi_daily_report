@@ -21,7 +21,7 @@ const reportTabs = document.querySelectorAll(".report-tab");
 
 const numberFormatter = new Intl.NumberFormat("en-IN");
 let currentReports = {};
-let activeReport = "service";
+let activeReport = document.querySelector(".report-tab.active")?.dataset.report || "service";
 let currentStatus = null;
 
 function setRunState(label) {
@@ -157,7 +157,9 @@ function renderDefaultStatus() {
 
 function setVisibleInputs(reportKey) {
   document.querySelectorAll("[data-report-input]").forEach((element) => {
-    element.hidden = element.dataset.reportInput !== reportKey;
+    const isVisible = element.dataset.reportInput === reportKey;
+    element.hidden = !isVisible;
+    element.setAttribute("aria-hidden", isVisible ? "false" : "true");
   });
 
   reportType.value = reportKey;
@@ -343,6 +345,7 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
+switchReport(activeReport, { keepPreview: true });
 renderSummary({}, activeReport);
 loadStatus().catch(() => {
   showNotice("Could not read local file status.", true);
