@@ -14,9 +14,7 @@ const notice = document.querySelector("#notice");
 const tableWrap = document.querySelector("#tableWrap");
 const previewHead = document.querySelector("#previewHead");
 const previewBody = document.querySelector("#previewBody");
-const downloadFinal = document.querySelector("#downloadFinal");
-const downloadZonal = document.querySelector("#downloadZonal");
-const downloadChannel = document.querySelector("#downloadChannel");
+const downloadReport = document.querySelector("#downloadReport");
 const reportTabs = document.querySelectorAll(".report-tab");
 
 const numberFormatter = new Intl.NumberFormat("en-IN");
@@ -129,14 +127,10 @@ function setDownloadEnabled(link, downloadValue, enabled) {
 }
 
 function setDownloads(downloads = {}, reportKey = activeReport) {
-  const isChannel = reportKey === "channel";
-  downloadFinal.hidden = isChannel;
-  downloadZonal.hidden = isChannel;
-  downloadChannel.hidden = !isChannel;
-
-  setDownloadEnabled(downloadFinal, downloads.final_report, Boolean(downloads.final_report));
-  setDownloadEnabled(downloadZonal, downloads.zonal_report, Boolean(downloads.zonal_report));
-  setDownloadEnabled(downloadChannel, downloads.channel_report, Boolean(downloads.channel_report));
+  const downloadValue = reportKey === "channel"
+    ? downloads.channel_report
+    : downloads.final_report;
+  setDownloadEnabled(downloadReport, downloadValue, Boolean(downloadValue));
 }
 
 function renderDefaultStatus() {
@@ -278,29 +272,27 @@ reportTabs.forEach((tab) => {
   });
 });
 
-[downloadFinal, downloadZonal, downloadChannel].forEach((link) => {
-  link.addEventListener("click", async (event) => {
-    const downloadValue = link.dataset.downloadValue || "";
-    const isDisabled = link.getAttribute("aria-disabled") === "true";
-    if (isDisabled || downloadValue === "") {
-      event.preventDefault();
-      return;
-    }
-
-    if (downloadValue.startsWith("/")) {
-      return;
-    }
-
+downloadReport.addEventListener("click", async (event) => {
+  const downloadValue = downloadReport.dataset.downloadValue || "";
+  const isDisabled = downloadReport.getAttribute("aria-disabled") === "true";
+  if (isDisabled || downloadValue === "") {
     event.preventDefault();
-    try {
-      await triggerGeneratedDownload(downloadValue);
-      showNotice(`Downloaded ${downloadValue.replaceAll("_", " ")}.`);
-      setRunState("Complete");
-    } catch (error) {
-      showNotice(error.message, true);
-      setRunState("Error");
-    }
-  });
+    return;
+  }
+
+  if (downloadValue.startsWith("/")) {
+    return;
+  }
+
+  event.preventDefault();
+  try {
+    await triggerGeneratedDownload(downloadValue);
+    showNotice("Downloaded report.");
+    setRunState("Complete");
+  } catch (error) {
+    showNotice(error.message, true);
+    setRunState("Error");
+  }
 });
 
 form.addEventListener("submit", async (event) => {
