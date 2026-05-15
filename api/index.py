@@ -18,8 +18,24 @@ from api.frontend_bundle import EMBEDDED_INDEX_HTML
 
 app = FastAPI(title="Xiaomi Daily Report Engine API")
 
-SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL", "").rstrip("/")
-SUPABASE_PUBLISHABLE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "")
+def first_env(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+SUPABASE_URL = first_env(
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "SUPABASE_URL",
+).rstrip("/")
+SUPABASE_PUBLISHABLE_KEY = first_env(
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "SUPABASE_PUBLISHABLE_KEY",
+    "SUPABASE_ANON_KEY",
+)
 AUTH_COOKIE_NAME = "zopper-access-token"
 ALLOWED_EMAIL_DOMAIN = "@zopper.com"
 COOKIE_SECURE = bool(os.getenv("VERCEL"))
@@ -50,7 +66,10 @@ def is_allowed_email(email: str) -> bool:
 
 def ensure_supabase_config() -> None:
     if not SUPABASE_URL or not SUPABASE_PUBLISHABLE_KEY:
-        raise HTTPException(500, "Supabase authentication is not configured.")
+        raise HTTPException(
+            500,
+            "Supabase authentication is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY or their NEXT_PUBLIC_* equivalents.",
+        )
 
 
 def supabase_request(
