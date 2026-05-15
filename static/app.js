@@ -46,16 +46,12 @@ function escapeHtml(value) {
 
 function renderFileStatus(label, status) {
   const dotClass = status.exists ? "ready" : "missing";
-  const meta = status.exists
-    ? `${status.name} · ${formatBytes(status.size)} · ${status.modified}`
-    : `${status.name} not found`;
 
   return `
     <div class="file-status">
       <span class="status-dot ${dotClass}"></span>
       <div>
         <strong>${escapeHtml(label)}</strong>
-        <small>${escapeHtml(meta)}</small>
       </div>
     </div>
   `;
@@ -149,11 +145,11 @@ function renderDefaultStatus() {
   const defaults = currentStatus.defaults;
   const rows = activeReport === "channel"
     ? [
-        renderFileStatus("AXIO report", defaults.axio),
-        renderFileStatus("Retail report", defaults.retail),
+        renderFileStatus("Upload Axio Report", defaults.axio),
+        renderFileStatus("Upload Retail Report", defaults.retail),
       ]
     : [
-        renderFileStatus("Daily service report", defaults.service),
+        renderFileStatus("Upload Service Report", defaults.service),
       ];
 
   defaultList.innerHTML = rows.join("");
