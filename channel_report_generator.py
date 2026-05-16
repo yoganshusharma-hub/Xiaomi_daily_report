@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -9,6 +10,37 @@ from workbook_styles import style_channel_workbook
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path("/tmp") if os.getenv("VERCEL") else BASE_DIR
+CHANNEL_MASTER_PATTERNS = ("Master*.xlsb", "Master*.xlsx")
+MONTH_NAME_TO_NUMBER = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+CHANNEL_MASTER_NAME_PATTERN = re.compile(
+    r"^master\s+(?P<month>[a-z]+)'?(?P<year>\d{2,4})(?:\s*\((?P<version>\d+)\))?\.(?:xlsb|xlsx)$",
+    re.IGNORECASE,
+)
 
 
 def first_existing(*names: str) -> Path:
@@ -19,9 +51,45 @@ def first_existing(*names: str) -> Path:
     return BASE_DIR / names[0]
 
 
+def parse_channel_master_name(path: Path) -> tuple[int, int, int] | None:
+    match = CHANNEL_MASTER_NAME_PATTERN.match(path.name)
+    if not match:
+        return None
+
+    month_name = match.group("month").lower()
+    month_number = MONTH_NAME_TO_NUMBER.get(month_name)
+    if month_number is None:
+        return None
+
+    year = int(match.group("year"))
+    if year < 100:
+        year += 2000
+    version = int(match.group("version") or 0)
+    return year, month_number, version
+
+
+def channel_master_sort_key(path: Path) -> tuple[int, int, int, int, int, str]:
+    parsed = parse_channel_master_name(path)
+    suffix_rank = 0 if path.suffix.lower() == ".xlsb" else 1
+    if parsed is not None:
+        year, month, version = parsed
+        return (0, -year, -month, -version, suffix_rank, path.name.lower())
+    return (1, 0, 0, 0, suffix_rank, path.name.lower())
+
+
+def resolve_master_file(base_dir: Path = BASE_DIR) -> Path:
+    candidates: list[Path] = []
+    for pattern in CHANNEL_MASTER_PATTERNS:
+        candidates.extend(path for path in base_dir.glob(pattern) if path.is_file())
+
+    if not candidates:
+        return base_dir / "Master.xlsb"
+    return sorted(candidates, key=channel_master_sort_key)[0]
+
+
 AXIO_FILE = first_existing("axio.csv", "mi_smart_report (2).csv")
 RETAIL_FILE = first_existing("retail copy.csv", "retail.csv", "mi_smart_report (1).csv")
-MASTER_FILE = BASE_DIR / "Master April'26.xlsb"
+MASTER_FILE = resolve_master_file()
 OUTPUT_FILE = OUTPUT_DIR / "final_channel_report.xlsx"
 
 VALUE_COLUMN = "Customer Price"

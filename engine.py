@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import json
+import re
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -20,16 +21,93 @@ OUTPUT_DIR = Path("/tmp") if os.getenv("VERCEL") else BASE_DIR
 
 DEFAULT_SERVICE_FILE = BASE_DIR / "mi_smart_report (6).csv"
 DEFAULT_SERVICE_MASTER_FILE = BASE_DIR / "current_service_master.xlsx"
-DEFAULT_CHANNEL_MASTER_FILE = BASE_DIR / "Master May'26 (1).xlsb"
 FINAL_REPORT_FILE = OUTPUT_DIR / "final_report.xlsx"
 ZONAL_REPORT_FILE = OUTPUT_DIR / "zonal_report.xlsx"
 
 APP_NAME = "Xiaomi Daily Report Engine"
 EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+CHANNEL_MASTER_PATTERNS = ("Master*.xlsb", "Master*.xlsx")
+CHANNEL_MASTER_LOOKUP_LABEL = "Master*.xlsb or Master*.xlsx"
 
 REQUIRED_SERVICE_COLUMNS = {"PAYMENT STATUS", "ASC Code", "CUSTOMER PRICE"}
 NEW_SERVICE_MASTER_COLUMNS = {"Agency_Code", "Agency_Name", "Region"}
 LEGACY_SERVICE_MASTER_COLUMNS = {"ASC_Code", "ASC_Name_BI", "Zone", "State"}
+
+MONTH_NAME_TO_NUMBER = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+CHANNEL_MASTER_NAME_PATTERN = re.compile(
+    r"^master\s+(?P<month>[a-z]+)'?(?P<year>\d{2,4})(?:\s*\((?P<version>\d+)\))?\.(?:xlsb|xlsx)$",
+    re.IGNORECASE,
+)
+
+
+def parse_channel_master_name(path: Path) -> tuple[int, int, int] | None:
+    match = CHANNEL_MASTER_NAME_PATTERN.match(path.name)
+    if not match:
+        return None
+
+    month_name = match.group("month").lower()
+    month_number = MONTH_NAME_TO_NUMBER.get(month_name)
+    if month_number is None:
+        return None
+
+    year = int(match.group("year"))
+    if year < 100:
+        year += 2000
+    version = int(match.group("version") or 0)
+    return year, month_number, version
+
+
+def channel_master_sort_key(path: Path) -> tuple[int, int, int, int, int, str]:
+    parsed = parse_channel_master_name(path)
+    suffix_rank = 0 if path.suffix.lower() == ".xlsb" else 1
+    if parsed is not None:
+        year, month, version = parsed
+        return (0, -year, -month, -version, suffix_rank, path.name.lower())
+
+    return (1, 0, 0, 0, suffix_rank, path.name.lower())
+
+
+def resolve_channel_master_file(base_dir: Path = BASE_DIR) -> Path | None:
+    override = os.getenv("CHANNEL_MASTER_FILE", "").strip()
+    if override:
+        override_path = Path(override)
+        return override_path if override_path.is_absolute() else base_dir / override_path
+
+    candidates: list[Path] = []
+    for pattern in CHANNEL_MASTER_PATTERNS:
+        candidates.extend(path for path in base_dir.glob(pattern) if path.is_file())
+
+    if not candidates:
+        return None
+    return sorted(candidates, key=channel_master_sort_key)[0]
+
+
+DEFAULT_CHANNEL_MASTER_FILE = resolve_channel_master_file() or (BASE_DIR / "Master.xlsb")
 
 def normalise_truthy(value: object) -> bool:
     if isinstance(value, bool): return value
@@ -202,7 +280,9 @@ def generate_channel_payload(axio_path: Path, retail_path: Path, master_path: Pa
     except Exception as e:
         raise ValueError(f"Channel Report Error: {str(e)}")
 
-def file_status(path: Path) -> dict[str, object]:
+def file_status(path: Path | None, missing_name: str | None = None) -> dict[str, object]:
+    if path is None:
+        return {"exists": False, "name": missing_name or "Missing file"}
     if not path.exists(): return {"exists": False, "name": path.name}
     stat = path.stat()
     return {"exists": True, "name": path.name, "size": stat.st_size, "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%d %b %Y, %I:%M %p")}

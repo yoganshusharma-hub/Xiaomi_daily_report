@@ -213,6 +213,7 @@ async def auth_session(user: dict[str, object] = Depends(get_authenticated_user)
 @app.get("/api/status")
 async def get_status(user: dict[str, object] = Depends(get_authenticated_user)):
     try:
+        channel_master_path = engine.resolve_channel_master_file()
         return {
             "app_name": engine.APP_NAME,
             "defaults": {
@@ -220,7 +221,10 @@ async def get_status(user: dict[str, object] = Depends(get_authenticated_user)):
                 "axio": engine.file_status(engine.DEFAULT_AXIO_FILE),
                 "retail": engine.file_status(engine.DEFAULT_RETAIL_FILE),
                 "service_master": engine.file_status(engine.DEFAULT_SERVICE_MASTER_FILE),
-                "channel_master": engine.file_status(engine.DEFAULT_CHANNEL_MASTER_FILE),
+                "channel_master": engine.file_status(
+                    channel_master_path,
+                    missing_name=engine.CHANNEL_MASTER_LOOKUP_LABEL,
+                ),
             },
             "outputs": {
                 "final_report": engine.file_status(engine.FINAL_REPORT_FILE),
@@ -249,6 +253,8 @@ async def generate(
             "columns": result["columns"],
             "downloads": result["downloads"]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
 
@@ -279,6 +285,8 @@ async def download_post(
             
         await run_generation_logic(report_type, service_file, axio_file, retail_file)
         return await handle_download_logic(download_key)
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
 
@@ -301,10 +309,14 @@ async def run_generation_logic(
         elif report_type == "channel":
             a_path = await save_upload(axio_file, tmp_path) or engine.DEFAULT_AXIO_FILE
             r_path = await save_upload(retail_file, tmp_path) or engine.DEFAULT_RETAIL_FILE
-            m_path = engine.DEFAULT_CHANNEL_MASTER_FILE
+            m_path = engine.resolve_channel_master_file()
             if not a_path.exists(): raise HTTPException(400, "Axio CSV file missing")
             if not r_path.exists(): raise HTTPException(400, "Retail CSV file missing")
-            if not m_path.exists(): raise HTTPException(400, f"Master file not found in repository: {m_path.name}")
+            if not m_path or not m_path.exists():
+                raise HTTPException(
+                    400,
+                    f"Master file not found in repository. Expected {engine.CHANNEL_MASTER_LOOKUP_LABEL}",
+                )
             result = engine.generate_channel_payload(a_path, r_path, m_path)
             result["downloads"] = {"channel_report": "channel_report"}
             return result
