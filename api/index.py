@@ -299,9 +299,10 @@ async def run_generation_logic(
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
         if report_type == "service":
-            s_path = await save_upload(service_file, tmp_path) or engine.DEFAULT_SERVICE_FILE
+            s_path = await save_upload(service_file, tmp_path, "service_upload.csv")
             m_path = engine.DEFAULT_SERVICE_MASTER_FILE
-            if not s_path.exists(): raise HTTPException(400, "Service CSV file missing")
+            if s_path is None:
+                raise HTTPException(400, "Upload the service CSV file.")
             if not m_path.exists():
                 raise HTTPException(
                     400,
@@ -312,11 +313,13 @@ async def run_generation_logic(
             result["downloads"] = {"final_report": "final_report"}
             return result
         elif report_type == "channel":
-            a_path = await save_upload(axio_file, tmp_path) or engine.DEFAULT_AXIO_FILE
-            r_path = await save_upload(retail_file, tmp_path) or engine.DEFAULT_RETAIL_FILE
+            a_path = await save_upload(axio_file, tmp_path, "axio_upload.csv")
+            r_path = await save_upload(retail_file, tmp_path, "retail_upload.csv")
             m_path = engine.resolve_channel_master_file()
-            if not a_path.exists(): raise HTTPException(400, "Axio CSV file missing")
-            if not r_path.exists(): raise HTTPException(400, "Retail CSV file missing")
+            if a_path is None:
+                raise HTTPException(400, "Upload the Axio CSV file.")
+            if r_path is None:
+                raise HTTPException(400, "Upload the Retail CSV file.")
             if not m_path or not m_path.exists():
                 raise HTTPException(
                     400,
@@ -343,9 +346,21 @@ async def handle_download_logic(file_key: str):
         
     return FileResponse(path, filename=filename, media_type=engine.EXCEL_CONTENT_TYPE)
 
-async def save_upload(upload: Optional[UploadFile], target_dir: Path) -> Optional[Path]:
-    if not upload or not upload.filename: return None
-    path = target_dir / upload.filename
+async def save_upload(
+    upload: Optional[UploadFile],
+    target_dir: Path,
+    target_name: str,
+) -> Optional[Path]:
+    if not upload:
+        return None
+    filename = (upload.filename or "").strip()
+    if not filename:
+        return None
+
+    path = target_dir / target_name
     with path.open("wb") as buffer:
         shutil.copyfileobj(upload.file, buffer)
+
+    if path.stat().st_size == 0:
+        raise HTTPException(400, f"{filename} is empty. Upload a CSV file with data.")
     return path

@@ -93,6 +93,14 @@ MASTER_FILE = resolve_master_file()
 OUTPUT_FILE = OUTPUT_DIR / "final_channel_report.xlsx"
 
 VALUE_COLUMN = "Customer Price"
+MASTER_LOOKUP_REQUIRED_COLUMNS = {"Retailer ID", "State", "Dist Name", "Outlet Name"}
+PREFERRED_MASTER_SHEETS = (
+    "Retail and Axio",
+    "Retail & Axio",
+    "Retail+Axio",
+    "Retail_Axio",
+    "Sheet1",
+)
 
 
 def clean_text(value: object) -> str:
@@ -110,6 +118,10 @@ def strip_column_names(frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
+def normalise_sheet_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
 def ordered_with_blank_last(values: pd.Series) -> list[str]:
     unique_values = values.dropna().unique().tolist()
     ordered = [value for value in unique_values if value != "Blank"]
@@ -118,12 +130,45 @@ def ordered_with_blank_last(values: pd.Series) -> list[str]:
     return ordered
 
 
+def resolve_master_lookup_sheet(master_path: Path) -> str | int:
+    suffix = master_path.suffix.lower()
+    engine = "pyxlsb" if suffix == ".xlsb" else None
+    workbook = pd.ExcelFile(master_path, engine=engine)
+    available_sheets = workbook.sheet_names
+    normalised_map = {
+        normalise_sheet_name(sheet_name): sheet_name for sheet_name in available_sheets
+    }
+
+    for preferred_name in PREFERRED_MASTER_SHEETS:
+        matched_sheet = normalised_map.get(normalise_sheet_name(preferred_name))
+        if matched_sheet:
+            return matched_sheet
+
+    for sheet_name in available_sheets:
+        sample = strip_column_names(
+            pd.read_excel(master_path, sheet_name=sheet_name, engine=engine, nrows=5)
+        )
+        if MASTER_LOOKUP_REQUIRED_COLUMNS.issubset(sample.columns):
+            return sheet_name
+
+    if available_sheets:
+        return available_sheets[0]
+    return 0
+
+
 def read_master_lookup(master_path: Path = MASTER_FILE) -> pd.DataFrame:
     suffix = master_path.suffix.lower()
     engine = "pyxlsb" if suffix == ".xlsb" else None
+    sheet_name = resolve_master_lookup_sheet(master_path)
     master = strip_column_names(
-        pd.read_excel(master_path, sheet_name="Retail and Axio", engine=engine)
+        pd.read_excel(master_path, sheet_name=sheet_name, engine=engine)
     )
+    missing = sorted(MASTER_LOOKUP_REQUIRED_COLUMNS.difference(master.columns))
+    if missing:
+        raise ValueError(
+            "Channel master sheet is missing required column(s): "
+            + ", ".join(missing)
+        )
     master["Retailer ID"] = pd.to_numeric(master["Retailer ID"], errors="coerce").astype("Int64")
     master["MasterState"] = master["State"].map(clean_text)
     master["MasterDistributorName"] = master["Dist Name"].map(clean_text)

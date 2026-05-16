@@ -73,12 +73,28 @@ function escapeHtml(value) {
 
 function renderFileStatus(label, status) {
   const dotClass = status.exists ? "ready" : "missing";
+  const detail = status.exists
+    ? status.name || "Available in repository"
+    : status.name || "Missing from repository";
 
   return `
     <div class="file-status">
       <span class="status-dot ${dotClass}"></span>
       <div>
         <strong>${escapeHtml(label)}</strong>
+        <small>${escapeHtml(detail)}</small>
+      </div>
+    </div>
+  `;
+}
+
+function renderUploadRequirement(label) {
+  return `
+    <div class="file-status">
+      <span class="status-dot"></span>
+      <div>
+        <strong>${escapeHtml(label)}</strong>
+        <small>Upload any CSV file</small>
       </div>
     </div>
   `;
@@ -167,11 +183,13 @@ function renderDefaultStatus() {
   const defaults = currentStatus.defaults;
   const rows = activeReport === "channel"
     ? [
-        renderFileStatus("Upload Axio Report", defaults.axio),
-        renderFileStatus("Upload Retail Report", defaults.retail),
+        renderFileStatus("Repository Channel Master", defaults.channel_master),
+        renderUploadRequirement("Upload Axio CSV"),
+        renderUploadRequirement("Upload Retail CSV"),
       ]
     : [
-        renderFileStatus("Upload Service Report", defaults.service),
+        renderFileStatus("Repository Service Master", defaults.service_master),
+        renderUploadRequirement("Upload Service CSV"),
       ];
 
   defaultList.innerHTML = rows.join("");
@@ -303,15 +321,15 @@ async function loadStatus() {
 }
 
 serviceFile.addEventListener("change", () => {
-  serviceFileName.textContent = serviceFile.files[0]?.name || "Use local default or choose a CSV";
+  serviceFileName.textContent = serviceFile.files[0]?.name || "Upload any CSV file";
 });
 
 axioFile.addEventListener("change", () => {
-  axioFileName.textContent = axioFile.files[0]?.name || "Use local default or choose a CSV";
+  axioFileName.textContent = axioFile.files[0]?.name || "Upload any CSV file";
 });
 
 retailFile.addEventListener("change", () => {
-  retailFileName.textContent = retailFile.files[0]?.name || "Use local default or choose a CSV";
+  retailFileName.textContent = retailFile.files[0]?.name || "Upload any CSV file";
 });
 
 reportTabs.forEach((tab) => {
@@ -390,6 +408,22 @@ logoutButton.addEventListener("click", async () => {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+
+  if (activeReport === "service" && !serviceFile.files[0]) {
+    showNotice("Upload the service CSV file.", true);
+    return;
+  }
+
+  if (activeReport === "channel") {
+    if (!axioFile.files[0]) {
+      showNotice("Upload the Axio CSV file.", true);
+      return;
+    }
+    if (!retailFile.files[0]) {
+      showNotice("Upload the Retail CSV file.", true);
+      return;
+    }
+  }
 
   // Vercel 4.5MB limit check
   const files = [serviceFile, axioFile, retailFile];
