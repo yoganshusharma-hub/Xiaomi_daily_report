@@ -302,7 +302,12 @@ async def run_generation_logic(
             s_path = await save_upload(service_file, tmp_path) or engine.DEFAULT_SERVICE_FILE
             m_path = engine.DEFAULT_SERVICE_MASTER_FILE
             if not s_path.exists(): raise HTTPException(400, "Service CSV file missing")
-            if not m_path.exists(): raise HTTPException(400, f"Master file not found in repository: {m_path.name}")
+            if not m_path.exists():
+                raise HTTPException(
+                    400,
+                    "Master file not found in repository or deployment bundle. "
+                    f"Expected {m_path.name}. Commit the workbook so it is available at runtime.",
+                )
             result = engine.generate_service_report(s_path, m_path)
             result["downloads"] = {"final_report": "final_report"}
             return result
@@ -315,7 +320,9 @@ async def run_generation_logic(
             if not m_path or not m_path.exists():
                 raise HTTPException(
                     400,
-                    f"Master file not found in repository. Expected {engine.CHANNEL_MASTER_LOOKUP_LABEL}",
+                    "Master file not found in repository or deployment bundle. "
+                    f"Expected {engine.CHANNEL_MASTER_LOOKUP_LABEL}. "
+                    "Commit a matching master workbook so it is available at runtime.",
                 )
             result = engine.generate_channel_payload(a_path, r_path, m_path)
             result["downloads"] = {"channel_report": "channel_report"}
